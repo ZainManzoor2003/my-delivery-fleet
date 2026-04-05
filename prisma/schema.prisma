@@ -1,0 +1,562 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum BusinessStatus {
+  INCOMPLETE
+  UNDER_REVIEW    
+  APPROVED        
+  REJECTED        
+  SUSPENDED
+}
+
+enum OrderItemSize {
+  small
+  medium
+  large
+  xlarge  
+}
+
+enum InvoiceStatus {
+  pending
+  paid
+  failed
+  processed
+}
+
+enum TransactionStatus {
+  succeeded
+  failed
+  processed
+}
+
+enum TransactionType {
+  subscription
+  refund
+}
+
+enum DeliverableAction {
+  deliverable_action_meet_at_door
+  deliverable_action_leave_at_door
+}
+
+enum DeliveryType {
+  ASAP
+  SCHEDULE
+}
+
+enum TicketCategory {
+  Account
+  Billing
+  Dispatch
+  Order
+}
+
+enum AttachmentType {
+  IMAGE
+  PDF
+}
+
+enum SurchargeType {
+  BASE_QUOTE
+  EXTENDED_QUOTE
+  CATERING
+  RETAIL
+}
+
+model User {
+  id              String   @id @unique
+  firstName       String?
+  lastName        String?
+  email           String    @unique
+  emailVerified   DateTime?
+  phoneNumber     String?  @map("phone_number") @db.VarChar(20)
+  image           String?
+  passwordHash    String   @map("password_hash") @db.VarChar(255)
+  role            String   @db.VarChar(50) // 'business' or 'admin'
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp()
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamp()
+
+  // Relations
+  business       Business?
+  admin          Admin?
+  ticketMessages TicketMessage[]
+
+  @@index([email])
+  @@index([role])
+  @@map("users")
+}
+
+enum AddressType {
+  BUSINESS
+  BILLING
+  DELIVERY
+}
+
+// ==========================================
+// ADDRESS
+// ==========================================
+
+model Address {
+  id             String      @id @default(uuid()) @db.Uuid
+  type           AddressType
+  address        String      @db.VarChar(255)
+  street         String      @db.VarChar(255)
+  apartment      String?     @db.VarChar(100)
+  city           String      @db.VarChar(100)
+  state          String      @db.VarChar(50)
+  postalCode     String      @map("postal_code") @db.VarChar(20)
+  latitude       Decimal?    @db.Decimal(10, 8)
+  longitude      Decimal?    @db.Decimal(11, 8)
+  
+  // Foreign keys
+  businessId      String?     @unique @map("business_id") @db.Uuid
+  paymentMethodId String?     @unique @map("payment_method_id") @db.Uuid
+  orderId         String?     @unique @map("order_id") @db.Uuid
+
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamp()
+  updatedAt      DateTime    @updatedAt @map("updated_at") @db.Timestamp()
+
+  // Relations
+  business       Business?      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  paymentMethod  PaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+  order          Order?         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  @@index([businessId])
+  @@index([paymentMethodId])
+  @@index([orderId])
+  @@map("addresses")
+}
+
+// ==========================================
+// BUSINESS PROFILES
+// ==========================================
+
+model Business {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @unique @map("user_id") 
+  type               String   @default("restaurant") @map("type") @db.VarChar(50)
+  name               String   @db.VarChar(255)
+  logo               String?  @db.Text // Business logo URL
+  phone              String   @db.VarChar(50)
+  avgOrdersPerDay    Int?     @map("avg_orders") // Average delivery orders per day
+  deliveryRadius     Decimal? @map("delivery_radius") @db.Decimal(5, 2) // Typical delivery radius in miles (e.g., 5.50)
+  routingPreference  String   @default("auto") @map("routing_preference") @db.VarChar(50) // 'auto', 'uber', 'doordash'
+  pickupInstructions String?  @map("pickup_instructions") @db.Text
+  referralCode       String   @unique @map("referral_code") @db.VarChar(50)
+  referredByCode     String?  @map("referred_by_code") @db.VarChar(50)
+  referrerCodeUsedBy   String?   @map("referrer_code_used_by") @db.Uuid // ID of business that used this business's referral code
+  referredCodeUsedAt   DateTime? @map("referred_code_used_at") @db.Timestamp() // When this business used someone's referral code
+  stripeCustomerId   String  @map("stripe_customer_id") @db.VarChar(255)
+  surchargeBaseQuote           Decimal @default(1.24) @map("surcharge_base_quote") @db.Decimal(10, 2)
+  surchargeExtendedQuote       Decimal @default(0.99) @map("surcharge_extended") @db.Decimal(10, 2)
+  surchargeCatering            Decimal @default(4.99) @map("surcharge_catering") @db.Decimal(10, 2)
+  surchargeRetail              Decimal @default(1.69) @map("surcharge_retail") @db.Decimal(10, 2)
+  status             BusinessStatus @default(INCOMPLETE) @map("status")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamp()
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamp()
+
+  // Relations
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address           Address?
+  orders            Order[]
+  posIntegrations   PosIntegration[]
+  paymentMethod     PaymentMethod?
+  transactions      Transaction[]
+  subscriptions     Subscription[]
+  invoices          Invoice[]
+  refunds           Refund[]
+  tickets           Ticket[]
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+  @@index([referralCode])
+  @@map("businesses")
+}
+
+// ==========================================
+// ADMIN PROFILES
+// ==========================================
+
+model Admin {
+  id        String   @id @unique @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp()
+
+  // Relations
+  user            User     @relation(fields: [id], references: [id], onDelete: Cascade)
+  assignedTickets Ticket[]
+  reviewedRefunds Refund[]
+
+  @@index([id])
+  @@map("admins")
+}
+
+// ==========================================
+// POS INTEGRATIONS
+// ==========================================
+
+model PosIntegration {
+  id         String    @id @default(uuid()) @db.Uuid
+  businessId String    @map("business_id") @db.Uuid
+  providerName String    @map("provider_name") @db.VarChar(100) // 'Toast', 'Square', 'Clover'
+  accountId    String?   @map("account_id") @db.VarChar(255)
+  accessToken  String?   @map("access_token") @db.Text
+  refreshToken String?   @map("refresh_token") @db.Text
+  status       String    @default("active") @db.VarChar(50) // 'active', 'disconnected'
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp()
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamp()
+
+  // Relations
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("pos_integrations")
+}
+
+// ==========================================
+// ORDERS
+// ==========================================
+
+model Order {
+  id                     String    @id @default(uuid()) @db.Uuid
+  businessId             String    @map("business_id") @db.Uuid
+  orderNumber            String    @map("order_number") @db.VarChar(50)
+  description            String?   @db.Text
+  customerName           String    @map("customer_name") @db.VarChar(255)
+  customerPhone          String    @map("customer_phone") @db.VarChar(50)
+  customerEmail          String?   @map("customer_email") @db.VarChar(255)
+  notes                  String?   @db.Text
+  provider               String?   @db.VarChar(50) // 'uber', 'doordash'
+  providerDeliveryId     String?   @map("provider_delivery_id") @db.VarChar(255)
+  providerQuoteId        String?   @map("provider_quote_id") @db.VarChar(255)
+  providerQuote          Decimal?  @map("provider_quote") @db.Decimal(10, 2)
+  deliveryFee            Decimal?  @map("delivery_fee") @db.Decimal(10, 2)
+  trackingUrl            String?   @map("tracking_url") @db.Text
+  customerDeliveryFee    Decimal  @map("customer_delivery_fee") @default(0.00) @db.Decimal(10, 2)
+  customerTip            Decimal   @default(0.00) @map("customer_tip") @db.Decimal(10, 2)
+  customerSubTotal       Decimal   @map("customer_sub_total") @default(0.00) @db.Decimal(10, 2)
+  serviceFee             Decimal?  @map("service_fee") @db.Decimal(10, 2)
+  discount               Decimal   @default(0.00) @db.Decimal(10, 2)
+  driverTip              Decimal   @default(0.00) @map("driver_tip") @db.Decimal(10, 2)
+  totalTip               Decimal   @default(0.00) @map("total_tip") @db.Decimal(10, 2)
+  isCatering             Boolean   @default(false) @map("is_catering")
+  containsAlcohol        Boolean   @default(false) @map("contains_alcohol")
+  surchargeType          SurchargeType? @map("surcharge_type")
+  totalAmount            Decimal?  @map("total_amount") @db.Decimal(10, 2)
+  deliveryInstruction    String?   @map("delivery_instruction") @db.Text
+  handoffType            DeliverableAction?   @map("handoff_type")
+  deliveryType           DeliveryType? @default(ASAP) @map("delivery_type")
+  status                 String    @db.VarChar(50)
+  estimatedDeliveryTime  DateTime? @map("estimated_delivery_time") @db.Timestamp()
+  estimatedPickupTime    DateTime? @map("estimated_pickup_time") @db.Timestamp()
+  deliveredAt            DateTime? @map("delivered_at") @db.Timestamp()
+  paidAt                 DateTime? @map("paid_at") @db.Timestamp()
+  driverRequestedAt      DateTime? @map("driver_requested_at") @db.Timestamp()
+  driverAcceptedAt       DateTime? @map("driver_accepted_at") @db.Timestamp()
+  deliveryStartTime      DateTime? @map("delivery_start_time") @db.Timestamp()
+  quoteExpiresAt         DateTime? @map("quote_expires_at") @db.Timestamp()
+  isClearedFromTracking  Boolean?  @map("is_cleared_from_tracking")
+  pickupVerificationPhoto  String?   @map("pickup_verification_photo") @db.Text
+  dropoffVerificationPhoto String?   @map("dropoff_verification_photo") @db.Text
+  
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamp()
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamp()
+
+  // Relations
+  business        Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  deliveryAddress Address?
+  courier         Courier?
+  transactions    Transaction[]
+  refunds         Refund[]
+  items           OrderItem[]
+
+  @@index([businessId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([customerPhone])
+  @@map("orders")
+}
+
+model Courier {
+  id              String    @id @default(uuid()) @db.Uuid
+  orderId         String    @unique @map("order_id") @db.Uuid
+  // Courier identity
+  name            String?   @db.VarChar(255)
+  phone           String?   @db.VarChar(50)
+  photoUrl        String?   @map("photo_url") @db.Text
+  // Vehicle info
+  vehicleType     String?   @map("vehicle_type") @db.VarChar(50) // bicycle, car, van, truck, scooter, motorcycle, walker
+  vehicleMake     String?   @map("vehicle_make") @db.VarChar(100)
+  vehicleModel    String?   @map("vehicle_model") @db.VarChar(100)
+  vehicleColor    String?   @map("vehicle_color") @db.VarChar(50)
+  licensePlate    String?   @map("license_plate") @db.VarChar(20)
+  // Location (updated via webhooks)
+  latitude        Decimal?  @db.Decimal(10, 8)
+  longitude       Decimal?  @db.Decimal(11, 8)
+  isImminent      Boolean   @default(false) @map("is_imminent") // true when courier is ~1 min away
+  // Timestamps
+  locationUpdatedAt DateTime? @map("location_updated_at") @db.Timestamp()
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp()
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamp()
+
+  // Relations
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("couriers")
+}
+
+model OrderItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  orderId     String   @map("order_id") @db.Uuid
+  name        String   @db.VarChar(255)
+  size        OrderItemSize  @default(small)
+  quantity    Int      @default(1)
+  unitPrice   Decimal?  @map("unit_price") @db.Decimal(10, 2)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamp()
+
+  // Relations
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ==========================================
+// PAYMENTS
+// ==========================================
+
+model PaymentMethod {
+  id                              String   @id @default(uuid()) @db.Uuid
+  businessId                      String   @unique @map("business_id") @db.Uuid
+  
+  // Stripe references - ALWAYS STORE THESE
+  stripePaymentMethodId           String   @unique @map("stripe_payment_method_id") @db.VarChar(255)
+  financialConnectionsAccountId   String?  @unique @map("financial_connections_account_id") @db.VarChar(255)
+  
+  // Payment type
+  paymentType                     String   @map("payment_type") @db.VarChar(50) // 'card' or 'ach'
+  
+  // Card fields - SAFE to store (display info only)
+  cardHolderName                  String?  @map("card_holder_name") @db.VarChar(255)
+  cardLast4                       String?  @map("card_last4") @db.VarChar(4)
+  cardBrand                       String?  @map("card_brand") @db.VarChar(50) // 'visa', 'mastercard', 'amex'
+  cardExpMonth                    Int?     @map("card_exp_month")
+  cardExpYear                     Int?     @map("card_exp_year")
+  
+  // ACH fields - SAFE to store (display info only)
+  achAccountHolderName            String?  @map("ach_account_holder_name") @db.VarChar(255)
+  achBankName                     String?  @map("ach_bank_name") @db.VarChar(255)
+  achAccountLast4                 String?  @map("ach_account_last4") @db.VarChar(4)
+  achAccountType                  String?  @map("ach_account_type") @db.VarChar(50) // 'checking' or 'savings'
+  
+  // Verification status
+  isVerified                      Boolean  @default(false) @map("is_verified")
+  verificationDate                DateTime? @map("verification_date") @db.Timestamp()
+  ownershipVerified               Boolean? @map("ownership_verified") // For ACH via Financial Connections
+  
+  // Verification check results (for debugging)
+  cvcCheckResult                  String?  @map("cvc_check_result") @db.VarChar(50) // 'pass', 'fail', 'unavailable'
+  avsCheckResult                  String?  @map("avs_check_result") @db.VarChar(50) // 'pass', 'fail', 'unavailable'
+  
+  // Balance info (for ACH via Financial Connections)
+  lastBalanceCheck                DateTime? @map("last_balance_check") @db.Timestamp()
+  availableBalance                BigInt?   @map("available_balance") // In cents
+  currentBalance                  BigInt?   @map("current_balance")   // In cents
+  
+  // Status
+  isDefault                       Boolean  @default(false) @map("is_default")
+  isActive                        Boolean  @default(true) @map("is_active")
+  
+  // Timestamps
+  createdAt                       DateTime @default(now()) @map("created_at") @db.Timestamp()
+  updatedAt                       DateTime @updatedAt @map("updated_at") @db.Timestamp()
+
+  // Relations
+  business              Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  billingAddress        Address? 
+  transactions          Transaction[]
+
+  @@index([businessId])
+  @@index([stripePaymentMethodId])
+  @@index([paymentType])
+  @@map("payment_methods")
+}
+
+model Transaction {
+  id              String   @id @default(uuid()) @db.Uuid
+  businessId      String   @map("business_id") @db.Uuid
+  orderId         String?  @map("order_id") @db.Uuid
+  invoiceId       String?  @map("invoice_id") @db.Uuid
+  paymentMethodId String?  @map("payment_method_id") @db.Uuid
+  type            TransactionType @map("type")
+  amount          Decimal  @db.Decimal(10, 2)
+  stripePaymentIntentId  String?  @map("stripe_payment_intent_id") @db.VarChar(255)
+  status          TransactionStatus @map("status")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamp()
+
+  // Relations
+  business      Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  order         Order?         @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
+  invoice       Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@map("transactions")
+}
+
+// ==========================================
+// SUBSCRIPTIONS
+// ==========================================
+
+model Subscription {
+  id                   String   @id @default(uuid()) @db.Uuid
+  businessId           String   @map("business_id") @db.Uuid
+  planName             String   @map("plan_name") @db.VarChar(100)
+  monthlyFee           Decimal  @map("monthly_fee") @db.Decimal(10, 2)
+  status               String   @default("active") @db.VarChar(50) // 'active', 'cancelled'
+  currentPeriodStart   DateTime @map("current_period_start") @db.Date
+  currentPeriodEnd     DateTime @map("current_period_end") @db.Date
+  stripeSubscriptionId String?  @map("stripe_subscription_id") @db.VarChar(255)
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamp()
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamp()
+
+  // Relations
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+model Invoice {
+  id                    String   @id @default(uuid()) @db.Uuid
+  businessId            String   @map("business_id") @db.Uuid
+  invoiceNumber         String   @unique @map("invoice_number") @db.VarChar(50)
+  weekStart             DateTime @map("week_start") @db.Date
+  weekEnd               DateTime @map("week_end") @db.Date
+  totalDriverTips       Decimal  @default(0.00) @map("total_driver_tips") @db.Decimal(10, 2)
+  totalCustomerTips     Decimal  @default(0.00) @map("total_customer_tips") @db.Decimal(10, 2)
+  totalTips             Decimal  @default(0.00) @map("total_tips") @db.Decimal(10, 2)
+  totalDeliveryFees     Decimal  @default(0.00) @map("total_delivery_fees") @db.Decimal(10, 2)
+  totalUberQuote        Decimal  @default(0.00) @map("total_uber_quote") @db.Decimal(10, 2)
+  totalServiceCharges   Decimal  @default(0.00) @map("total_service_charges") @db.Decimal(10, 2)
+  totalCustomerDeliveryFees Decimal  @default(0.00) @map("total_customer_delivery_fees") @db.Decimal(10, 2)
+  cardCharges           Decimal  @default(0.00) @map("card_charges") @db.Decimal(10, 2)
+  totalOrders           Int      @default(0) @map("total_orders")
+  subscriptionFee       Decimal  @default(0.00) @map("subscription_fee") @db.Decimal(10, 2)
+  smartMarketingCharges Decimal  @default(0.00) @map("smart_marketing_charges") @db.Decimal(10, 2)
+  totalAmount           Decimal  @map("total_amount") @db.Decimal(10, 2)
+  status                InvoiceStatus @default(pending)
+  pdfUrl                String?  @map("pdf_url") @db.Text
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamp()
+
+  // Relations
+  business    Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([businessId])
+  @@map("invoices")
+}
+
+// ==========================================
+// REFUNDS
+// ==========================================
+
+model Refund {
+  id              String    @id @default(uuid()) @db.Uuid
+  orderId         String    @map("order_id") @db.Uuid
+  businessId      String    @map("business_id") @db.Uuid
+  reason          String    @db.Text
+  amount          Decimal   @db.Decimal(10, 2)
+  status          String    @default("pending") @db.VarChar(50) // 'pending', 'approved', 'denied'
+  adminNotes      String?   @map("admin_notes") @db.Text
+  reviewedBy      String?   @map("reviewed_by")
+  stripeRefundId  String?   @map("stripe_refund_id") @db.VarChar(255)
+  processedAt     DateTime? @map("processed_at") @db.Timestamp()
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamp()
+
+  // Relations
+  order    Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  reviewer Admin?   @relation(fields: [reviewedBy], references: [id])
+
+  @@index([status])
+  @@map("refunds")
+}
+
+// ==========================================
+// SUPPORT SYSTEM
+// ==========================================
+
+model Ticket {
+  id           String    @id @default(uuid()) @db.Uuid
+  businessId   String    @map("business_id") @db.Uuid
+  ticketNumber String    @unique @map("ticket_number") @db.VarChar(50)
+  subject      String    @db.VarChar(255)
+  description  String    @db.Text
+  status       String    @default("open") @db.VarChar(50) // 'open', 'in_progress', 'resolved', 'closed'
+  priority     String    @default("medium") @db.VarChar(50) // 'low', 'medium', 'high'
+  orderId      String?    @map("order_id") @db.Uuid
+  orderNumber  String?    @map("order_number") @db.VarChar(50)
+  category     TicketCategory @map("category")
+  assignedTo   String?   @map("assigned_to")
+  resolvedAt   DateTime? @map("resolved_at") @db.Timestamp()
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamp()
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamp()
+
+  // Relations
+  business    Business        @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  admin       Admin?          @relation(fields: [assignedTo], references: [id])
+  messages    TicketMessage[]
+  attachments Attachment[]
+
+  @@index([businessId])
+  @@index([status])
+  @@map("tickets")
+}
+
+model TicketMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  ticketId  String   @map("ticket_id") @db.Uuid
+  senderId  String   @map("sender_id") 
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamp()
+
+  // Relations
+  ticket     Ticket      @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  sender     User        @relation(fields: [senderId], references: [id])
+  attachments Attachment[]
+
+  @@map("ticket_messages")
+}
+
+model Attachment {
+  id           String         @id @default(uuid()) @db.Uuid
+  fileName     String?         @map("file_name") @db.VarChar(255)
+  fileSize     BigInt?         @map("file_size") // in bytes
+  fileUrl      String?         @map("file_url") @db.Text // S3 or local storage path
+  type         AttachmentType
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamp()
+
+  // Foreign keys for polymorphic relationships
+  ticketId        String?  @map("ticket_id") @db.Uuid
+  ticketMessageId String?  @map("ticket_message_id") @db.Uuid
+
+  // Relations
+  ticket        Ticket?        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  ticketMessage TicketMessage? @relation(fields: [ticketMessageId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+  @@index([ticketMessageId])
+  @@map("attachments")
+}

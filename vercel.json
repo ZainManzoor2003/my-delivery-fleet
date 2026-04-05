@@ -1,0 +1,14 @@
+{
+  "crons": [
+    {
+      "path": "/api/webhooks/weekly-billing",
+      "schedule": "0 7 * * 3"
+    }
+  ],
+  "functions": {
+    "app/api/webhooks/weekly-billing/route.ts": {
+      "maxDuration": 300
+    }
+  },
+  "buildCommand": "npx prisma generate && npx prisma migrate deploy && next build"
+}
